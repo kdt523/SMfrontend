@@ -1,0 +1,5 @@
+﻿node_modules/
+mcp-server/
+Appwrite-boilerplate/
+.env
+requirements.txt
