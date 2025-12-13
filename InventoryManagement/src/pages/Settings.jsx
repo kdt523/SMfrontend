@@ -7,7 +7,9 @@ import { useStock } from '../context/StockContext';
 import { Warehouse, MapPin, Plus } from 'lucide-react';
 
 const Settings = () => {
-  const { warehouses, mockCategories } = useStock();
+  const { warehouses, categories, createWarehouse } = useStock();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newWh, setNewWh] = useState({ name: '', code: '', address: '' });
   const [activeTab, setActiveTab] = useState('warehouses');
 
   return (
@@ -48,15 +50,15 @@ const Settings = () => {
               <h3 className="text-2xl font-black uppercase mb-1">{wh.name}</h3>
               <div className="flex items-center gap-2 text-gray-600 font-bold">
                 <MapPin size={18} />
-                {wh.location}
+                {wh.address || wh.location || 'No Address'}
               </div>
               <div className="mt-4 pt-4 border-t-2 border-dashed border-gray-300">
-                <p className="text-sm font-bold text-gray-500 uppercase">Code: {wh.id}</p>
+                <p className="text-sm font-bold text-gray-500 uppercase">Code: {wh.code || wh.id}</p>
               </div>
             </NeoCard>
           ))}
           
-          <button className="border-3 border-black border-dashed p-6 flex flex-col items-center justify-center gap-4 hover:bg-gray-50 transition-colors min-h-[200px]">
+          <button onClick={() => setShowAdd(true)} className="border-3 border-black border-dashed p-6 flex flex-col items-center justify-center gap-4 hover:bg-gray-50 transition-colors min-h-[200px]">
             <div className="bg-gray-200 p-4 rounded-full">
               <Plus size={32} />
             </div>
@@ -65,13 +67,30 @@ const Settings = () => {
         </div>
       )}
 
+      {showAdd && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 border-4 border-black max-w-lg w-full">
+            <h3 className="text-xl font-black mb-4">Add Warehouse</h3>
+            <form onSubmit={e => { e.preventDefault(); createWarehouse(newWh).then(() => { setShowAdd(false); setNewWh({name:'',code:'',address:''}); }).catch(err => {}); }} className="space-y-4">
+              <NeoInput label="Name" value={newWh.name} onChange={e => setNewWh({...newWh, name: e.target.value})} required />
+              <NeoInput label="Code" value={newWh.code} onChange={e => setNewWh({...newWh, code: e.target.value})} required />
+              <NeoInput label="Address" value={newWh.address} onChange={e => setNewWh({...newWh, address: e.target.value})} />
+              <div className="flex justify-end gap-2">
+                <NeoButton type="button" variant="outline" onClick={() => setShowAdd(false)}>CANCEL</NeoButton>
+                <NeoButton type="submit" variant="primary">CREATE</NeoButton>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'categories' && (
         <NeoCard>
           <h3 className="text-xl font-black uppercase mb-4">Product Categories</h3>
           <div className="flex flex-wrap gap-3">
-            {mockCategories.map(cat => (
-              <div key={cat} className="bg-white border-2 border-black px-4 py-2 shadow-neo-sm font-bold flex items-center gap-2">
-                {cat}
+            {categories.map(cat => (
+              <div key={cat.id || cat.name} className="bg-white border-2 border-black px-4 py-2 shadow-neo-sm font-bold flex items-center gap-2">
+                {cat.name}
                 <button className="hover:text-red-600"><Plus size={16} className="rotate-45" /></button>
               </div>
             ))}

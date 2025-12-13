@@ -6,15 +6,46 @@ import { useStock } from '../context/StockContext';
 import { Search } from 'lucide-react';
 
 const History = () => {
-  const { receipts, deliveries, transfers, adjustments } = useStock();
+  const { receipts, deliveries, transfers, adjustments, warehouses } = useStock();
   const [filterType, setFilterType] = useState('All');
+
+  // Helper to get warehouse name
+  const getWhName = (id) => warehouses.find(w => w.id === id)?.name || id;
 
   // Combine all moves into one list
   const allMoves = [
-    ...receipts.map(r => ({ ...r, type: 'Receipt', ref: r.id })),
-    ...deliveries.map(d => ({ ...d, type: 'Delivery', ref: d.id })),
-    ...transfers.map(t => ({ ...t, type: 'Transfer', ref: t.id })),
-    ...adjustments.map(a => ({ ...a, type: 'Adjustment', ref: a.id })),
+    ...receipts.map(r => ({ 
+      ...r, 
+      type: 'Receipt', 
+      ref: r.reference, 
+      date: r.scheduled_date,
+      details: `From: ${r.partner_id || 'Unknown'}`,
+      linesCount: r.lines?.length || 0
+    })),
+    ...deliveries.map(d => ({ 
+      ...d, 
+      type: 'Delivery', 
+      ref: d.reference, 
+      date: d.scheduled_date,
+      details: `To: ${d.partner_id || 'Unknown'}`,
+      linesCount: d.lines?.length || 0
+    })),
+    ...transfers.map(t => ({ 
+      ...t, 
+      type: 'Transfer', 
+      ref: t.transfer_number, 
+      date: t.transfer_date,
+      details: `From ${getWhName(t.from_warehouse_id)} to ${getWhName(t.to_warehouse_id)}`,
+      linesCount: t.lines?.length || 0
+    })),
+    ...adjustments.map(a => ({ 
+      ...a, 
+      type: 'Adjustment', 
+      ref: a.reference, 
+      date: a.adjustment_date,
+      details: `Reason: ${a.reason || 'Audit'}`,
+      linesCount: a.lines?.length || 0
+    })),
   ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const filteredMoves = filterType === 'All' ? allMoves : allMoves.filter(m => m.type === filterType);
@@ -50,7 +81,7 @@ const History = () => {
           <tbody>
             {filteredMoves.map((move, idx) => (
               <tr key={idx} className="hover:bg-gray-50 border-b-2 border-gray-200 last:border-0">
-                <td className="p-4 font-bold">{move.date}</td>
+                <td className="p-4 font-bold">{move.date ? move.date.split('T')[0] : '—'}</td>
                 <td className="p-4 font-mono">{move.ref}</td>
                 <td className="p-4">
                   <NeoBadge variant={
@@ -62,22 +93,15 @@ const History = () => {
                   </NeoBadge>
                 </td>
                 <td className="p-4 text-sm">
-                  {move.type === 'Receipt' && `From: ${move.supplier}`}
-                  {move.type === 'Delivery' && `To: ${move.customer}`}
-                  {move.type === 'Transfer' && `From ${move.from} to ${move.to}`}
-                  {move.type === 'Adjustment' && `Reason: ${move.reason}`}
+                  {move.details}
                   <div className="text-xs text-gray-500 mt-1">
-                    {move.items.length} line items
+                    {move.linesCount} line items
                   </div>
                 </td>
                 <td className="p-4">
-                  {move.status ? (
-                    <span className={`font-bold ${move.status === 'Done' ? 'text-green-600' : 'text-gray-600'}`}>
-                      {move.status}
-                    </span>
-                  ) : (
-                    <span className="font-bold text-gray-600">Applied</span>
-                  )}
+                  <span className={`font-bold ${move.state === 'done' ? 'text-green-600' : 'text-gray-600'}`}>
+                    {move.state}
+                  </span>
                 </td>
               </tr>
             ))}

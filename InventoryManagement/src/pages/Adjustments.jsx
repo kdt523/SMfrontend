@@ -8,38 +8,59 @@ import { useStock } from '../context/StockContext';
 import { Plus, X, ClipboardCheck } from 'lucide-react';
 
 const Adjustments = () => {
-  const { adjustments, createAdjustment, products, warehouses, stock } = useStock();
+  const { adjustments, createAdjustment, validateAdjustment, products, warehouses } = useStock();
   const [showModal, setShowModal] = useState(false);
   const [newAdjustment, setNewAdjustment] = useState({
-    warehouse: warehouses[0]?.id,
-    reason: 'Audit',
-    items: [{ productId: products[0]?.id, qty: 0 }]
+    reference: '',
+    warehouse_id: warehouses[0]?.id || '',
+    adjustment_date: new Date().toISOString().split('T')[0],
+    lines: [{ product_id: products[0]?.id, counted_quantity: 0 }]
   });
 
   const handleAddItem = () => {
     setNewAdjustment({
       ...newAdjustment,
-      items: [...newAdjustment.items, { productId: products[0]?.id, qty: 0 }]
+      lines: [...newAdjustment.lines, { product_id: products[0]?.id, counted_quantity: 0 }]
     });
   };
 
   const handleRemoveItem = (index) => {
-    const newItems = [...newAdjustment.items];
-    newItems.splice(index, 1);
-    setNewAdjustment({ ...newAdjustment, items: newItems });
+    const newLines = [...newAdjustment.lines];
+    newLines.splice(index, 1);
+    setNewAdjustment({ ...newAdjustment, lines: newLines });
   };
 
   const handleItemChange = (index, field, value) => {
-    const newItems = [...newAdjustment.items];
-    newItems[index][field] = value;
-    setNewAdjustment({ ...newAdjustment, items: newItems });
+    const newLines = [...newAdjustment.lines];
+    newLines[index][field] = value;
+    setNewAdjustment({ ...newAdjustment, lines: newLines });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    createAdjustment(newAdjustment);
+    // Determine location from warehouse
+    const wh = warehouses.find(w => w.id === newAdjustment.warehouse_id);
+    const locId = wh?.locations?.[0]?.id;
+
+    if (!locId) {
+      alert("Selected warehouse must have at least one location.");
+      return;
+    }
+
+    const payload = {
+      ...newAdjustment,
+      reference: newAdjustment.reference || `INV-ADJ-${Date.now()}`,
+      location_id: locId
+    };
+
+    createAdjustment(payload);
     setShowModal(false);
-    setNewAdjustment({ warehouse: warehouses[0]?.id, reason: 'Audit', items: [{ productId: products[0]?.id, qty: 0 }] });
+    setNewAdjustment({
+      reference: '',
+      warehouse_id: warehouses[0]?.id || '',
+      adjustment_date: new Date().toISOString().split('T')[0],
+      lines: [{ product_id: products[0]?.id, counted_quantity: 0 }]
+    });
   };
 
   return (
@@ -56,26 +77,34 @@ const Adjustments = () => {
           <NeoCard key={adj.id} className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <h3 className="text-xl font-black">{adj.id}</h3>
-                <NeoBadge variant="default">{adj.reason}</NeoBadge>
+                <h3 className="text-xl font-black">{adj.reference}</h3>
+                <NeoBadge variant={adj.state === 'done' ? 'success' : 'default'}>
+                  {adj.state}
+                </NeoBadge>
               </div>
-              <p className="font-bold text-gray-600">Warehouse: {warehouses.find(w => w.id === adj.warehouse)?.name}</p>
-              <p className="text-sm text-gray-500">Date: {adj.date}</p>
+              <p className="font-bold text-gray-600">Warehouse: {adj.warehouse?.name || 'Unknown'}</p>
+              <p className="text-sm text-gray-500">Date: {adj.adjustment_date}</p>
             </div>
 
             <div className="flex-1 md:mx-8">
               <p className="text-xs font-bold uppercase text-gray-500 mb-1">Adjusted Items</p>
               <div className="flex flex-wrap gap-2">
-                {adj.items.map((item, idx) => {
-                  const prod = products.find(p => p.id === item.productId);
+                {adj.lines?.map((line, idx) => {
+                  const prodName = line.product?.name || products.find(p => p.id === line.product_id)?.name || 'Unknown';
                   return (
                     <span key={idx} className="bg-gray-100 border-2 border-black px-2 py-1 text-xs font-bold">
-                      {prod?.name}: {item.qty}
+                      {prodName}: {line.counted_quantity}
                     </span>
                   );
                 })}
               </div>
             </div>
+
+            {adj.state !== 'done' && (
+              <NeoButton onClick={() => validateAdjustment(adj.id)} variant="secondary" className="flex items-center gap-2">
+                <ClipboardCheck size={18} /> VALIDATE
+              </NeoButton>
+            )}
           </NeoCard>
         ))}
       </div>
@@ -92,95 +121,80 @@ const Adjustments = () => {
             
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-sm uppercase">Warehouse</label>
-                  <select 
-                    className="w-full px-4 py-2 border-3 border-black shadow-neo-sm focus:shadow-neo outline-none bg-white"
-                    value={newAdjustment.warehouse}
-                    onChange={e => setNewAdjustment({...newAdjustment, warehouse: e.target.value})}
-                  >
-                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="font-bold text-sm uppercase">Reason</label>
-                  <select 
-                    className="w-full px-4 py-2 border-3 border-black shadow-neo-sm focus:shadow-neo outline-none bg-white"
-                    value={newAdjustment.reason}
-                    onChange={e => setNewAdjustment({...newAdjustment, reason: e.target.value})}
-                  >
-                    <option>Audit</option>
-                    <option>Damage</option>
-                    <option>Mismatch</option>
-                    <option>Theft</option>
-                  </select>
-                </div>
+                <NeoInput 
+                  label="Reference" 
+                  placeholder="Auto-generated"
+                  value={newAdjustment.reference}
+                  onChange={(e) => setNewAdjustment({...newAdjustment, reference: e.target.value})}
+                />
+                <NeoInput 
+                  label="Date" 
+                  type="date"
+                  value={newAdjustment.adjustment_date}
+                  onChange={(e) => setNewAdjustment({...newAdjustment, adjustment_date: e.target.value})}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="font-bold text-sm uppercase">Warehouse</label>
+                <select 
+                  className="w-full px-4 py-2 border-3 border-black shadow-neo-sm focus:shadow-neo outline-none bg-white"
+                  value={newAdjustment.warehouse_id}
+                  onChange={e => setNewAdjustment({...newAdjustment, warehouse_id: e.target.value})}
+                >
+                  <option value="">Select Warehouse</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
               </div>
 
               <div className="border-3 border-black p-4 bg-gray-50">
                 <div className="flex justify-between items-center mb-4">
-                  <h4 className="font-black uppercase">Counted Quantities</h4>
+                  <h4 className="font-black uppercase">Counted Products</h4>
                   <NeoButton type="button" onClick={handleAddItem} variant="outline" className="py-1 px-3 text-sm">
                     + Add Line
                   </NeoButton>
                 </div>
                 
                 <div className="space-y-3">
-                  {newAdjustment.items.map((item, index) => {
-                    const currentStock = stock[newAdjustment.warehouse]?.[item.productId] || 0;
-                    const diff = parseInt(item.qty) - currentStock;
-                    
-                    return (
-                      <div key={index} className="flex gap-2 items-end">
-                        <div className="flex-1">
-                          <label className="text-xs font-bold uppercase">Product</label>
-                          <select 
-                            className="w-full px-3 py-2 border-2 border-black shadow-neo-sm outline-none"
-                            value={item.productId}
-                            onChange={e => handleItemChange(index, 'productId', e.target.value)}
-                          >
-                            {products.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="w-20">
-                          <label className="text-xs font-bold uppercase text-gray-500">Current</label>
-                          <div className="px-3 py-2 bg-gray-200 border-2 border-gray-300 font-bold text-center">
-                            {currentStock}
-                          </div>
-                        </div>
-                        <div className="w-24">
-                          <label className="text-xs font-bold uppercase">Counted</label>
-                          <input 
-                            type="number" 
-                            className="w-full px-3 py-2 border-2 border-black shadow-neo-sm outline-none"
-                            value={item.qty}
-                            onChange={e => handleItemChange(index, 'qty', e.target.value)}
-                            min="0"
-                          />
-                        </div>
-                        <div className="w-20 text-center">
-                           <span className={`text-xs font-bold ${diff < 0 ? 'text-red-600' : diff > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                             {diff > 0 ? '+' : ''}{diff}
-                           </span>
-                        </div>
-                        <button 
-                          type="button" 
-                          onClick={() => handleRemoveItem(index)}
-                          className="p-2 bg-neo-accent text-white border-2 border-black shadow-neo-sm hover:translate-y-1 hover:shadow-none transition-all"
+                  {newAdjustment.lines.map((line, index) => (
+                    <div key={index} className="flex gap-2 items-end">
+                      <div className="flex-1">
+                        <label className="text-xs font-bold uppercase">Product</label>
+                        <select 
+                          className="w-full px-3 py-2 border-2 border-black shadow-neo-sm outline-none"
+                          value={line.product_id}
+                          onChange={e => handleItemChange(index, 'product_id', e.target.value)}
                         >
-                          <X size={16} />
-                        </button>
+                          {products.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
                       </div>
-                    );
-                  })}
+                      <div className="w-24">
+                        <label className="text-xs font-bold uppercase">Counted Qty</label>
+                        <input 
+                          type="number" 
+                          className="w-full px-3 py-2 border-2 border-black shadow-neo-sm outline-none"
+                          value={line.counted_quantity}
+                          onChange={e => handleItemChange(index, 'counted_quantity', Number(e.target.value))}
+                          min="0"
+                        />
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => handleRemoveItem(index)}
+                        className="p-2 bg-neo-accent text-white border-2 border-black shadow-neo-sm hover:translate-y-1 hover:shadow-none transition-all"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               <div className="flex justify-end gap-4">
                 <NeoButton type="button" variant="outline" onClick={() => setShowModal(false)}>CANCEL</NeoButton>
-                <NeoButton type="submit" variant="primary">APPLY ADJUSTMENT</NeoButton>
+                <NeoButton type="submit" variant="primary">CREATE ADJUSTMENT</NeoButton>
               </div>
             </form>
           </div>

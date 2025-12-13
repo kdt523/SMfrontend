@@ -14,15 +14,15 @@ const Dashboard = () => {
   const totalProducts = products.length;
   const lowStockItems = products.filter(p => {
     const qty = stock[activeWarehouse]?.[p.id] || 0;
-    return qty <= p.minStock;
+    return qty <= (p.reorder_quantity || 0);
   });
   const outOfStockItems = products.filter(p => {
     const qty = stock[activeWarehouse]?.[p.id] || 0;
     return qty === 0;
   });
-  const pendingReceipts = receipts.filter(r => r.status !== 'Done' && r.status !== 'Canceled').length;
-  const pendingDeliveries = deliveries.filter(d => d.status !== 'Done' && d.status !== 'Canceled').length;
-  const scheduledTransfers = transfers.filter(t => t.status !== 'Done').length;
+  const pendingReceipts = receipts.filter(r => r.state !== 'done' && r.state !== 'canceled').length;
+  const pendingDeliveries = deliveries.filter(d => d.state !== 'done' && d.state !== 'canceled').length;
+  const scheduledTransfers = transfers.filter(t => t.state !== 'done').length;
 
   const COLORS = ['#FFDE59', '#5CE1E6', '#FF5757', '#CB6CE6'];
   const stockData = products.map(p => ({

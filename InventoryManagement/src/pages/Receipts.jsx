@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import NeoCard from '../components/ui/NeoCard';
 import NeoButton from '../components/ui/NeoButton';
@@ -8,37 +8,76 @@ import { useStock } from '../context/StockContext';
 import { Plus, Check, X } from 'lucide-react';
 
 const Receipts = () => {
-  const { receipts, createReceipt, validateReceipt, products } = useStock();
+  const { receipts, createReceipt, validateReceipt, products, warehouses, activeWarehouse } = useStock();
   const [showModal, setShowModal] = useState(false);
+  
+  // Initialize with defaults
   const [newReceipt, setNewReceipt] = useState({
-    supplier: '',
-    items: [{ productId: products[0]?.id, qty: 1 }]
+    receipt_number: '',
+    supplier_id: '', // TODO: Add supplier management
+    warehouse_id: activeWarehouse || '',
+    location_id: '',
+    receipt_date: new Date().toISOString().split('T')[0],
+    lines: [{ product_id: products[0]?.id, received_quantity: 1, location_id: '' }]
   });
+
+  // Update warehouse_id when activeWarehouse changes or on init
+  useEffect(() => {
+    if (activeWarehouse && !newReceipt.warehouse_id) {
+      setNewReceipt(prev => ({ ...prev, warehouse_id: activeWarehouse }));
+    }
+  }, [activeWarehouse]);
+
+  // Get locations for selected warehouse
+  const getLocations = (warehouseId) => {
+    const wh = warehouses.find(w => w.id === warehouseId);
+    return wh?.locations || [];
+  };
+
+  const availableLocations = getLocations(newReceipt.warehouse_id);
 
   const handleAddItem = () => {
     setNewReceipt({
       ...newReceipt,
-      items: [...newReceipt.items, { productId: products[0]?.id, qty: 1 }]
+      lines: [...newReceipt.lines, { product_id: products[0]?.id, received_quantity: 1, location_id: newReceipt.location_id }]
     });
   };
 
   const handleRemoveItem = (index) => {
-    const newItems = [...newReceipt.items];
-    newItems.splice(index, 1);
-    setNewReceipt({ ...newReceipt, items: newItems });
+    const newLines = [...newReceipt.lines];
+    newLines.splice(index, 1);
+    setNewReceipt({ ...newReceipt, lines: newLines });
   };
 
   const handleItemChange = (index, field, value) => {
-    const newItems = [...newReceipt.items];
-    newItems[index][field] = value;
-    setNewReceipt({ ...newReceipt, items: newItems });
+    const newLines = [...newReceipt.lines];
+    newLines[index][field] = value;
+    setNewReceipt({ ...newReceipt, lines: newLines });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    createReceipt(newReceipt);
+    // Generate receipt number if empty
+    const payload = {
+      ...newReceipt,
+      receipt_number: newReceipt.receipt_number || `REC-${Date.now()}`,
+      // Ensure lines have location_id (fallback to header location)
+      lines: newReceipt.lines.map(line => ({
+        ...line,
+        location_id: line.location_id || newReceipt.location_id
+      }))
+    };
+    createReceipt(payload);
     setShowModal(false);
-    setNewReceipt({ supplier: '', items: [{ productId: products[0]?.id, qty: 1 }] });
+    // Reset form
+    setNewReceipt({
+      receipt_number: '',
+      supplier_id: '',
+      warehouse_id: activeWarehouse || '',
+      location_id: '',
+      receipt_date: new Date().toISOString().split('T')[0],
+      lines: [{ product_id: products[0]?.id, received_quantity: 1, location_id: '' }]
+    });
   };
 
   return (
@@ -55,30 +94,30 @@ const Receipts = () => {
           <NeoCard key={receipt.id} className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <h3 className="text-xl font-black">{receipt.id}</h3>
-                <NeoBadge variant={receipt.status === 'Done' ? 'success' : receipt.status === 'Waiting' ? 'warning' : 'default'}>
-                  {receipt.status}
+                <h3 className="text-xl font-black">{receipt.receipt_number}</h3>
+                <NeoBadge variant={receipt.state === 'done' ? 'success' : receipt.state === 'waiting' ? 'warning' : 'default'}>
+                  {receipt.state}
                 </NeoBadge>
               </div>
-              <p className="font-bold text-gray-600">Supplier: {receipt.supplier}</p>
-              <p className="text-sm text-gray-500">Date: {receipt.date}</p>
+              <p className="font-bold text-gray-600">Supplier: {receipt.supplier?.name || 'Unknown'}</p>
+              <p className="text-sm text-gray-500">Date: {receipt.receipt_date}</p>
             </div>
 
             <div className="flex-1 md:mx-8">
               <p className="text-xs font-bold uppercase text-gray-500 mb-1">Items</p>
               <div className="flex flex-wrap gap-2">
-                {receipt.items.map((item, idx) => {
-                  const prod = products.find(p => p.id === item.productId);
+                {receipt.lines?.map((line, idx) => {
+                  const prodName = line.product?.name || products.find(p => p.id === line.product_id)?.name || 'Unknown';
                   return (
                     <span key={idx} className="bg-gray-100 border-2 border-black px-2 py-1 text-xs font-bold">
-                      {prod?.name} x{item.qty}
+                      {prodName} x{line.received_quantity}
                     </span>
                   );
                 })}
               </div>
             </div>
 
-            {receipt.status !== 'Done' && (
+            {receipt.state !== 'done' && (
               <NeoButton onClick={() => validateReceipt(receipt.id)} variant="secondary" className="flex items-center gap-2">
                 <Check size={18} /> VALIDATE
               </NeoButton>
@@ -98,30 +137,66 @@ const Receipts = () => {
             <h2 className="text-3xl font-black mb-6 uppercase">Incoming Receipt</h2>
             
             <form onSubmit={handleSubmit} className="space-y-6">
-              <NeoInput 
-                label="Supplier Name" 
-                value={newReceipt.supplier} 
-                onChange={e => setNewReceipt({...newReceipt, supplier: e.target.value})}
-                required 
-              />
+              <div className="grid grid-cols-2 gap-4">
+                <NeoInput 
+                  label="Receipt Number" 
+                  placeholder="Auto-generated if empty"
+                  value={newReceipt.receipt_number}
+                  onChange={(e) => setNewReceipt({...newReceipt, receipt_number: e.target.value})}
+                />
+                <NeoInput 
+                  label="Date" 
+                  type="date"
+                  value={newReceipt.receipt_date}
+                  onChange={(e) => setNewReceipt({...newReceipt, receipt_date: e.target.value})}
+                />
+              </div>
 
-              <div className="border-3 border-black p-4 bg-gray-50">
-                <div className="flex justify-between items-center mb-4">
-                  <h4 className="font-black uppercase">Products</h4>
-                  <NeoButton type="button" onClick={handleAddItem} variant="outline" className="py-1 px-3 text-sm">
-                    + Add Line
-                  </NeoButton>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold uppercase mb-1">Warehouse</label>
+                  <select 
+                    className="w-full border-2 border-black p-2 font-bold focus:outline-none focus:ring-2 focus:ring-black transition-all"
+                    value={newReceipt.warehouse_id}
+                    onChange={(e) => setNewReceipt({...newReceipt, warehouse_id: e.target.value, location_id: ''})}
+                  >
+                    <option value="">Select Warehouse</option>
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
                 </div>
-                
-                <div className="space-y-3">
-                  {newReceipt.items.map((item, index) => (
-                    <div key={index} className="flex gap-2 items-end">
+                <div>
+                  <label className="block text-sm font-bold uppercase mb-1">Location</label>
+                  <select 
+                    className="w-full border-2 border-black p-2 font-bold focus:outline-none focus:ring-2 focus:ring-black transition-all"
+                    value={newReceipt.location_id}
+                    onChange={(e) => setNewReceipt({...newReceipt, location_id: e.target.value})}
+                    required
+                  >
+                    <option value="">Select Location</option>
+                    {availableLocations.map(l => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-bold uppercase">Items</label>
+                  <button type="button" onClick={handleAddItem} className="text-xs font-bold underline hover:text-blue-600">
+                    + Add Item
+                  </button>
+                </div>
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                  {newReceipt.lines.map((line, idx) => (
+                    <div key={idx} className="flex gap-2 items-end">
                       <div className="flex-1">
-                        <label className="text-xs font-bold uppercase">Product</label>
                         <select 
-                          className="w-full px-3 py-2 border-2 border-black shadow-neo-sm outline-none"
-                          value={item.productId}
-                          onChange={e => handleItemChange(index, 'productId', e.target.value)}
+                          className="w-full border-2 border-black p-2 text-sm font-bold"
+                          value={line.product_id}
+                          onChange={(e) => handleItemChange(idx, 'product_id', e.target.value)}
                         >
                           {products.map(p => (
                             <option key={p.id} value={p.id}>{p.name}</option>
@@ -129,31 +204,26 @@ const Receipts = () => {
                         </select>
                       </div>
                       <div className="w-24">
-                        <label className="text-xs font-bold uppercase">Qty</label>
-                        <input 
+                        <NeoInput 
                           type="number" 
-                          className="w-full px-3 py-2 border-2 border-black shadow-neo-sm outline-none"
-                          value={item.qty}
-                          onChange={e => handleItemChange(index, 'qty', e.target.value)}
                           min="1"
+                          value={line.received_quantity}
+                          onChange={(e) => handleItemChange(idx, 'received_quantity', Number(e.target.value))}
                         />
                       </div>
-                      <button 
-                        type="button" 
-                        onClick={() => handleRemoveItem(index)}
-                        className="p-2 bg-neo-accent text-white border-2 border-black shadow-neo-sm hover:translate-y-1 hover:shadow-none transition-all"
-                      >
-                        <X size={16} />
-                      </button>
+                      {newReceipt.lines.length > 1 && (
+                        <button type="button" onClick={() => handleRemoveItem(idx)} className="p-2 text-red-500 hover:bg-red-50 rounded">
+                          <X size={16} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="flex justify-end gap-4">
-                <NeoButton type="button" variant="outline" onClick={() => setShowModal(false)}>CANCEL</NeoButton>
-                <NeoButton type="submit" variant="primary">CREATE DRAFT</NeoButton>
-              </div>
+              <NeoButton type="submit" variant="primary" className="w-full py-3 text-lg">
+                CREATE RECEIPT
+              </NeoButton>
             </form>
           </div>
         </div>

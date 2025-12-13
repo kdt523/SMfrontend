@@ -11,35 +11,64 @@ const Transfers = () => {
   const { transfers, createTransfer, validateTransfer, products, warehouses } = useStock();
   const [showModal, setShowModal] = useState(false);
   const [newTransfer, setNewTransfer] = useState({
-    from: warehouses[0]?.id,
-    to: warehouses[1]?.id,
-    items: [{ productId: products[0]?.id, qty: 1 }]
+    transfer_number: '',
+    from_warehouse_id: warehouses[0]?.id || '',
+    to_warehouse_id: warehouses[1]?.id || '',
+    transfer_date: new Date().toISOString().split('T')[0],
+    lines: [{ product_id: products[0]?.id, quantity: 1 }]
   });
 
   const handleAddItem = () => {
     setNewTransfer({
       ...newTransfer,
-      items: [...newTransfer.items, { productId: products[0]?.id, qty: 1 }]
+      lines: [...newTransfer.lines, { product_id: products[0]?.id, quantity: 1 }]
     });
   };
 
   const handleRemoveItem = (index) => {
-    const newItems = [...newTransfer.items];
-    newItems.splice(index, 1);
-    setNewTransfer({ ...newTransfer, items: newItems });
+    const newLines = [...newTransfer.lines];
+    newLines.splice(index, 1);
+    setNewTransfer({ ...newTransfer, lines: newLines });
   };
 
   const handleItemChange = (index, field, value) => {
-    const newItems = [...newTransfer.items];
-    newItems[index][field] = value;
-    setNewTransfer({ ...newTransfer, items: newItems });
+    const newLines = [...newTransfer.lines];
+    newLines[index][field] = value;
+    setNewTransfer({ ...newTransfer, lines: newLines });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    createTransfer(newTransfer);
+    // Determine locations from warehouses
+    const fromWh = warehouses.find(w => w.id === newTransfer.from_warehouse_id);
+    const toWh = warehouses.find(w => w.id === newTransfer.to_warehouse_id);
+    const fromLoc = fromWh?.locations?.[0]?.id;
+    const toLoc = toWh?.locations?.[0]?.id;
+
+    if (!fromLoc || !toLoc) {
+      alert("Selected warehouses must have at least one location.");
+      return;
+    }
+
+    const payload = {
+      ...newTransfer,
+      transfer_number: newTransfer.transfer_number || `INT-${Date.now()}`,
+      lines: newTransfer.lines.map(line => ({
+        ...line,
+        from_location_id: fromLoc,
+        to_location_id: toLoc
+      }))
+    };
+
+    createTransfer(payload);
     setShowModal(false);
-    setNewTransfer({ from: warehouses[0]?.id, to: warehouses[1]?.id, items: [{ productId: products[0]?.id, qty: 1 }] });
+    setNewTransfer({
+      transfer_number: '',
+      from_warehouse_id: warehouses[0]?.id || '',
+      to_warehouse_id: warehouses[1]?.id || '',
+      transfer_date: new Date().toISOString().split('T')[0],
+      lines: [{ product_id: products[0]?.id, quantity: 1 }]
+    });
   };
 
   return (
@@ -56,34 +85,34 @@ const Transfers = () => {
           <NeoCard key={transfer.id} className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <h3 className="text-xl font-black">{transfer.id}</h3>
-                <NeoBadge variant={transfer.status === 'Done' ? 'success' : 'default'}>
-                  {transfer.status}
+                <h3 className="text-xl font-black">{transfer.transfer_number}</h3>
+                <NeoBadge variant={transfer.state === 'done' ? 'success' : 'default'}>
+                  {transfer.state}
                 </NeoBadge>
               </div>
               <div className="flex items-center gap-2 font-bold text-gray-600">
-                <span>{warehouses.find(w => w.id === transfer.from)?.name}</span>
+                <span>{transfer.from_warehouse?.name || 'Unknown'}</span>
                 <ArrowRight size={16} />
-                <span>{warehouses.find(w => w.id === transfer.to)?.name}</span>
+                <span>{transfer.to_warehouse?.name || 'Unknown'}</span>
               </div>
-              <p className="text-sm text-gray-500">Date: {transfer.date}</p>
+              <p className="text-sm text-gray-500">Date: {transfer.transfer_date}</p>
             </div>
 
             <div className="flex-1 md:mx-8">
               <p className="text-xs font-bold uppercase text-gray-500 mb-1">Items</p>
               <div className="flex flex-wrap gap-2">
-                {transfer.items.map((item, idx) => {
-                  const prod = products.find(p => p.id === item.productId);
+                {transfer.lines?.map((line, idx) => {
+                  const prodName = line.product?.name || products.find(p => p.id === line.product_id)?.name || 'Unknown';
                   return (
                     <span key={idx} className="bg-gray-100 border-2 border-black px-2 py-1 text-xs font-bold">
-                      {prod?.name} x{item.qty}
+                      {prodName} x{line.quantity}
                     </span>
                   );
                 })}
               </div>
             </div>
 
-            {transfer.status !== 'Done' && (
+            {transfer.state !== 'done' && (
               <NeoButton onClick={() => validateTransfer(transfer.id)} variant="secondary" className="flex items-center gap-2">
                 <Check size={18} /> VALIDATE
               </NeoButton>
@@ -104,13 +133,29 @@ const Transfers = () => {
             
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
+                <NeoInput 
+                  label="Transfer Number" 
+                  placeholder="Auto-generated"
+                  value={newTransfer.transfer_number}
+                  onChange={(e) => setNewTransfer({...newTransfer, transfer_number: e.target.value})}
+                />
+                <NeoInput 
+                  label="Date" 
+                  type="date"
+                  value={newTransfer.transfer_date}
+                  onChange={(e) => setNewTransfer({...newTransfer, transfer_date: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-sm uppercase">Source Warehouse</label>
                   <select 
                     className="w-full px-4 py-2 border-3 border-black shadow-neo-sm focus:shadow-neo outline-none bg-white"
-                    value={newTransfer.from}
-                    onChange={e => setNewTransfer({...newTransfer, from: e.target.value})}
+                    value={newTransfer.from_warehouse_id}
+                    onChange={e => setNewTransfer({...newTransfer, from_warehouse_id: e.target.value})}
                   >
+                    <option value="">Select Warehouse</option>
                     {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                 </div>
@@ -118,9 +163,10 @@ const Transfers = () => {
                   <label className="font-bold text-sm uppercase">Destination Warehouse</label>
                   <select 
                     className="w-full px-4 py-2 border-3 border-black shadow-neo-sm focus:shadow-neo outline-none bg-white"
-                    value={newTransfer.to}
-                    onChange={e => setNewTransfer({...newTransfer, to: e.target.value})}
+                    value={newTransfer.to_warehouse_id}
+                    onChange={e => setNewTransfer({...newTransfer, to_warehouse_id: e.target.value})}
                   >
+                    <option value="">Select Warehouse</option>
                     {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                 </div>
@@ -135,14 +181,14 @@ const Transfers = () => {
                 </div>
                 
                 <div className="space-y-3">
-                  {newTransfer.items.map((item, index) => (
+                  {newTransfer.lines.map((line, index) => (
                     <div key={index} className="flex gap-2 items-end">
                       <div className="flex-1">
                         <label className="text-xs font-bold uppercase">Product</label>
                         <select 
                           className="w-full px-3 py-2 border-2 border-black shadow-neo-sm outline-none"
-                          value={item.productId}
-                          onChange={e => handleItemChange(index, 'productId', e.target.value)}
+                          value={line.product_id}
+                          onChange={e => handleItemChange(index, 'product_id', e.target.value)}
                         >
                           {products.map(p => (
                             <option key={p.id} value={p.id}>{p.name}</option>
@@ -154,8 +200,8 @@ const Transfers = () => {
                         <input 
                           type="number" 
                           className="w-full px-3 py-2 border-2 border-black shadow-neo-sm outline-none"
-                          value={item.qty}
-                          onChange={e => handleItemChange(index, 'qty', e.target.value)}
+                          value={line.quantity}
+                          onChange={e => handleItemChange(index, 'quantity', Number(e.target.value))}
                           min="1"
                         />
                       </div>
