@@ -8,8 +8,10 @@ from app.api import deps
 from app.models.product import Product, ProductCategory, UnitOfMeasure
 from app.models.warehouse import Location
 from app.models.stock import MoveType, MoveState
+from app.models.documents import Receipt, ReceiptLine, DocumentStatus
 from app.schemas.product import ProductCreate, ProductResponse, ProductCategoryCreate, ProductCategoryResponse, UnitOfMeasureCreate, UnitOfMeasureResponse
 from app.services import stock_service
+from datetime import datetime
 
 router = APIRouter()
 
@@ -104,26 +106,59 @@ async def create_product(
                 location_id = default_location.id
         
         if location_id:
-            # Update stock
-            await stock_service.update_stock(
-                db=db,
-                product_id=product.id,
-                location_id=location_id,
-                quantity_change=initial_stock
-            )
-            # Create stock move log
-            await stock_service.create_stock_move(
-                db=db,
-                product_id=product.id,
-                quantity=initial_stock,
-                move_type=MoveType.ADJUSTMENT,
-                state=MoveState.DONE,
-                user_id=current_user.id,
-                to_location_id=location_id,
-                reference_type="product_creation",
-                reference_id=product.id,
-                notes="Initial stock on product creation"
-            )
+            # Fetch location to get warehouse_id
+            loc_result = await db.execute(select(Location).where(Location.id == location_id))
+            location_obj = loc_result.scalars().first()
+            
+            if location_obj:
+                # Create Receipt
+                receipt_number = f"RCP-INIT-{product.sku}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                receipt = Receipt(
+                    receipt_number=receipt_number,
+                    warehouse_id=location_obj.warehouse_id,
+                    location_id=location_id,
+                    receipt_date=datetime.now().date(),
+                    state=DocumentStatus.DONE,
+                    created_by=current_user.id,
+                    validated_by=current_user.id,
+                    validated_at=datetime.now(),
+                    notes="Initial stock receipt"
+                )
+                db.add(receipt)
+                await db.flush() # Get ID
+                
+                # Create Receipt Line
+                receipt_line = ReceiptLine(
+                    receipt_id=receipt.id,
+                    product_id=product.id,
+                    location_id=location_id,
+                    ordered_quantity=initial_stock,
+                    received_quantity=initial_stock,
+                    unit_price=product.cost_price,
+                    notes="Initial stock"
+                )
+                db.add(receipt_line)
+
+                # Update stock
+                await stock_service.update_stock(
+                    db=db,
+                    product_id=product.id,
+                    location_id=location_id,
+                    quantity_change=initial_stock
+                )
+                # Create stock move log
+                await stock_service.create_stock_move(
+                    db=db,
+                    product_id=product.id,
+                    quantity=initial_stock,
+                    move_type=MoveType.RECEIPT,
+                    state=MoveState.DONE,
+                    user_id=current_user.id,
+                    to_location_id=location_id,
+                    reference_type="receipt",
+                    reference_id=receipt.id,
+                    notes="Initial stock on product creation"
+                )
             await db.commit()
 
     # Reload to get category relationship

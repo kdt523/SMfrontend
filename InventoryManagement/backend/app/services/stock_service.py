@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 from app.models.stock import StockQuant, StockMove, MoveType, MoveState
+from app.models.product import Product
+from app.models.alerts import StockAlert, AlertType, AlertLevel
 from fastapi import HTTPException
 
 async def get_stock_quant(db: AsyncSession, product_id: UUID, location_id: UUID) -> StockQuant:
@@ -36,6 +38,45 @@ async def update_stock(
         quant.quantity = new_qty
         db.add(quant) # Mark as modified
     
+    await db.flush()
+
+    # Check for alerts
+    product_result = await db.execute(select(Product).where(Product.id == product_id))
+    product = product_result.scalars().first()
+    
+    if product and product.min_stock_level is not None:
+        quants_result = await db.execute(select(StockQuant).where(StockQuant.product_id == product_id))
+        all_quants = quants_result.scalars().all()
+        total_qty = sum(q.quantity for q in all_quants)
+        
+        if total_qty <= product.min_stock_level:
+             existing_alert = await db.execute(
+                select(StockAlert).where(
+                    StockAlert.product_id == product_id,
+                    StockAlert.is_resolved == False,
+                    StockAlert.alert_type == AlertType.LOW_STOCK
+                )
+            )
+             if not existing_alert.scalars().first():
+                alert = StockAlert(
+                    product_id=product_id,
+                    alert_type=AlertType.LOW_STOCK,
+                    current_quantity=total_qty,
+                    threshold_quantity=product.min_stock_level,
+                    alert_level=AlertLevel.WARNING
+                )
+                db.add(alert)
+        else:
+             existing_alerts = await db.execute(
+                select(StockAlert).where(
+                    StockAlert.product_id == product_id,
+                    StockAlert.is_resolved == False,
+                    StockAlert.alert_type == AlertType.LOW_STOCK
+                )
+            )
+             for alert in existing_alerts.scalars().all():
+                 alert.is_resolved = True
+
     return quant
 
 async def create_stock_move(
